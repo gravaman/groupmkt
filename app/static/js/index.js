@@ -1,9 +1,9 @@
 /* jshint esversion: 6 */
-import { lineChart } from '/js/lineChart.js'
+import { lineGraph } from '/js/lineGraph.js'
 
 $(document).ready(function() {
-	// main visual
-	lineChart("#main-display-visual", getFrame(), "data/linechart_data.csv")
+	// main visual: pull data every ten seconds over 10 minute interval
+	lineGraph("#main-display-visual", getFrame(), "FUN", 10, 600) 
 
 	// sidebar toggle
 	$('#sidebarCollapse').on('click', function() {
@@ -19,7 +19,7 @@ $(document).ready(function() {
 
 function getFrame() {
 	let frame = {
-		width: Math.min($('#main-display-visual').parent().width(), 90)
+		width: Math.min($('#main-display-visual').parent().width(), 900)
 	}
 	frame.height = frame.width*$(window).height()/$(window).width()
 	return frame
