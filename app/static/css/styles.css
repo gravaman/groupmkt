@@ -1,0 +1,108 @@
+@import "https://fonts.googleapis.com/css?family=Poppins:300,400,500,600,700";
+
+body {
+	font-family: 'Poppins', sans-serif;
+	background: #fafafa;
+	height: 100vh;
+}
+
+p {
+	font-family: 'Poppins', sans-serif;
+	font-size: 1.1em;
+	font-weight: 300;
+	line-height: 1.7em;
+	color: #999;
+}
+
+svg {
+	display: block;
+	margin: auto;
+}
+
+.wrapper {
+	display: block;
+	height: 100vh;
+	width: 100vw;
+}
+
+#sidebar {
+	margin-left: -250px;
+	min-width: 250px;
+	max-width: 250px;
+	height: 100vh;
+	position: fixed;
+	top: 0;
+	left: 0;
+	background-color: #333;
+	color: #fff;
+	border-right: solid 5px #333;
+	transition: all 0.3s;
+	z-index:9999;
+}
+
+#sidebar.inactive {
+	margin-left: 0;
+}
+
+#sidebar .sidebar-header {
+	padding: 10px;
+}
+
+#sidebar ul.channels {
+	padding: 20px;
+}
+
+#sidebar ul.tickers {
+	padding: 20px;
+}
+
+.overlay {
+	display: none;
+	position: fixed;
+	width: 100vw;
+	height: 100vh;
+	background: rgba(0,0,0,0.7);
+	z-index:998;
+	opacity: 0;
+	transition: all 0.5 ease-in-out;
+}
+
+.overlay.active {
+	display: block;
+	opacity: 0.4;
+}
+
+#dismiss {
+	width: 35px;
+	height: 35px;
+	position: absolute;
+	top: 10px;
+	right: 10px;
+}
+
+#content {
+	width: 100%;
+	height: 100vh;
+	padding: 20px;
+	position: absolute;
+	top: 0;
+	right: 0;
+	transition: all 0.3s;
+	min-height: 100vh;
+}
+
+#main-display-wrapper {
+	height: 100vh;
+}
+
+#stdin {
+	position: absolute;
+	bottom: 0px;
+	left:0;
+	right:0;
+	margin: 0 auto;
+}
+
+.spacer {
+	margin-top: 40px;
+}

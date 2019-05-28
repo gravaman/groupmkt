@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+
+		<!-- external dependencies: bootstrap, fontawesome -->
+		<link rel="stylesheet" href="lib/bootstrap-4.3.1/css/bootstrap.min.css"></script>
+		<link  rel="stylesheet" href="lib/fontawesome-5.8.2/css/solid.min.css">
+		<link  rel="stylesheet" href="lib/fontawesome-5.8.2/css/fontawesome.min.css">
+
+		<link rel="stylesheet" href="css/styles.css"/>
+
+		<title>elm</title>
+	</head>
+	<body>
+		<div class="wrapper">
+			<div id="sidebar">
+				<div id="dismiss">
+					<button type="button" id="sidebarOPen" class="btn btn-secondary">
+						<i class="fas fa-times"></i>
+					</button>
+				</div>
+				<div class="sidebar-header">
+					<h3>elm</h3>
+				</div>
+				<ul class="list-unstyled channels">
+					<p>Channels</p>
+					<li>lodging</li> 
+					<li>travel</li>
+				</ul>
+				<ul class="list-unstyled tickers">
+					<p>CUSIPs</p>
+					<li>098678990</li>
+					<li>789876779</li>
+					<li>234543233</li>
+				</ul>
+			</div>
+			<div id="content">
+				<nav class="navbar navbar-expand-lg navbar-light bg-light">
+					<div class="container-fluid">
+						<button type="button" id="sidebarCollapse" class="btn btn-secondary">
+							<i class="fas fa-bars"></i>
+						</button>
+					</div>
+				</nav>
+				<div id="main-display-wrapper">
+					<div class="container-fluid">
+						<div id="main-display-toggle" class="row">
+							<div class="col"></div>
+							<div class="col-2">
+								<nav aria-label="main display selector">
+									<ul class="pagination">
+								    	<li class="page-item"><a class="page-link" href="#"><i class="fas fa-chart-line"></i></a></li>
+								    	<li class="page-item"><a class="page-link" href="#"><i class="fas fa-th"></i></a></li>
+								  	</ul>
+								</nav>
+							</div>
+							<div class="col"></div>
+						</div>
+						<div id="main-display" class="row">
+							<div class="col"></div>
+							<div class="col-8">
+								<div id="main-display-visual"></div>
+							</div>
+							<div class="col"></div>
+						</div>
+					</div>
+					<div id="stdin">
+						<div class="container-fluid">
+						<div class="row spacer">
+							<div class="col"></div>
+							<div class="col-6">
+								<div class="input-group mb-3">
+									<input type="text" class="form-control" aria-describedby="basic-addon3">
+									<div class="input-group-append">
+										<button class="btn btn-outline-secondary" type="button" id="btn-stdin">Go</button>
+									</div>
+								</div>
+							</div>
+							<div class="col"></div>
+						</div>
+						<div class="row spacer"></div>
+						</div>
+
+					</div>
+				</div>
+			</div>
+			<div class="overlay"></div>
+		</div>
+
+		<!-- bootstrap dependencies: jquery, popper, bootstrap -->
+		<script src="lib/jquery-3.3.1.slim.min.js"></script>
+		<script src="lib/popper-1.14.7.js"></script>
+		<script src="lib/bootstrap-4.3.1/js/bootstrap.min.js"></script>
+
+		<!-- external dependencies: d3 -->
+		<script src="https://d3js.org/d3.v5.min.js"></script>
+
+    		<script type="module" src="js/index.js"></script>
+	</body>
+</html>
