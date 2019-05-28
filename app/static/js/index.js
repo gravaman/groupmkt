@@ -1,3 +1,4 @@
+/* jshint esversion: 6 */
 import { lineChart } from '/js/lineChart.js'
 
 $(document).ready(function() {

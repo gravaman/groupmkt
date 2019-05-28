@@ -1,3 +1,4 @@
+/* jshint esversion: 6 */
 export function lineChart(tagId, frame, dataFeed) {
 	let margin = {top:10, right:30, bottom:30, left:60}
 
