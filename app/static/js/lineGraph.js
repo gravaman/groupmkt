@@ -32,6 +32,7 @@ export function lineGraph(tagId, frame, ticker, freq, interval) {
 
 	let svg = d3.select(tagId)
 			.append("svg")
+				.attr("class", "line-graph")
 				.attr("width", frame.width+margin.left+margin.right)
 				.attr("height", frame.height+margin.top+margin.bottom)
 			.append("g")
@@ -40,6 +41,7 @@ export function lineGraph(tagId, frame, ticker, freq, interval) {
 	// pull historical data
 	let data = priorData(ticker, freq, interval)
 	let xrng = d3.range(0,data.length,1)
+	let bounds = [d3.min(data, d => d.value), d3.max(data, d => d.value)]
 
 	// set scales
 	let scales = {
@@ -50,7 +52,7 @@ export function lineGraph(tagId, frame, ticker, freq, interval) {
 			.domain([data[0].date, data[data.length-1].date])
 			.range([0,frame.width]),
 		y: d3.scaleLinear()
-			.domain([d3.min(data, d => d.value), d3.max(data, d => d.value)])
+			.domain(bounds)
 			.range([frame.height, 0])
 	}
 
@@ -64,38 +66,46 @@ export function lineGraph(tagId, frame, ticker, freq, interval) {
 			.attr("transform", `translate(0,${frame.height})`)
 			.call(scales.xAx.axis)
 			
-		
 	// y-axis
-	svg.append("g")
-		.call(d3.axisLeft(scales.y)
-			.tickSizeOuter(0))
+	scales.y.axis = d3.axisLeft(scales.y)
+				.tickSizeOuter(0)
+
+	let yAx = svg.append("g")
+			.attr("class", "y-axis")
+			.call(scales.y.axis)
 
 	// heartbeat transition on document root element
 	let heartbeat = d3.transition("heartbeat")
 				.duration(1000)
 				.ease(d3.easeLinear)
 
-	// line path
+	// line graph
 	let line = d3.line()
 			.x((d,i) => scales.x(i))
 			.y(d => scales.y(d.value))
 
 	let linePath = svg.append("path")
-				.attr("fill", "none")
-				.attr("stroke", "steelblue")
-				.attr("stroke-width", 1.5)
+				.attr("class", "line-graph-path")
 				.attr("d", line(data))
 
 	// redraw graph at given frequency 
 	setInterval(tick, 1000)
 	function tick() {
 		// update data
+		let v = pullData(ticker)
 		data.shift()
-		data.push(pullData(ticker))
+		data.push(v)
 
-		// update x-axis and redraw line
-		scales.xAx.domain([data[0].date, data[data.length-1].date])
+		// update x-axis
+		scales.xAx.domain([data[0].date, v.date]) 
 		xAx.call(scales.xAx.axis)
+
+		// update y-axis
+		bounds = [Math.min(bounds[0], v.value), Math.max(bounds[1], v.value)]
+		scales.y.domain(bounds)
+		yAx.call(scales.y.axis)
+		
+		// update path
 		linePath.attr("d", line(data))
 	}
 }

@@ -1,7 +1,4 @@
 # To Do
-* fix y-axis tick marks
-* bold axis
-* axis font
 * add grid lines
 * content background color
 * chart title
