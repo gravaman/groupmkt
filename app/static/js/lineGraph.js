@@ -41,27 +41,39 @@ export function lineGraph(tagId, frame, ticker, freq, interval) {
 	let data = priorData(ticker, freq, interval)
 	let xrng = d3.range(0,data.length,1)
 
-	console.log("historical data...\n", data)
-	console.log("xrng:...\n", xrng)
-
 	// set scales
 	let scales = {
-		x: d3.scaleTime()
+		x: d3.scaleLinear()
 			.domain([0,xrng.length-1])
 			.range([0, frame.width]),
+		xAx: d3.scaleTime()
+			.domain([data[0].date, data[data.length-1].date])
+			.range([0,frame.width]),
 		y: d3.scaleLinear()
 			.domain([d3.min(data, d => d.value), d3.max(data, d => d.value)])
 			.range([frame.height, 0])
 	}
 
 	// x-axis
-	svg.append("g")
-		.attr("transform", `translate(0,${frame.height})`)
-		.call(d3.axisBottom(scales.x))
+	scales.xAx.axis = d3.axisBottom(scales.xAx)
+				.tickSizeOuter(0)
+				.tickFormat(d3.timeFormat("%H:%M:%S"))
+
+	let xAx = svg.append("g")
+			.attr("class", "x-axis")
+			.attr("transform", `translate(0,${frame.height})`)
+			.call(scales.xAx.axis)
+			
 		
 	// y-axis
 	svg.append("g")
-		.call(d3.axisLeft(scales.y))
+		.call(d3.axisLeft(scales.y)
+			.tickSizeOuter(0))
+
+	// heartbeat transition on document root element
+	let heartbeat = d3.transition("heartbeat")
+				.duration(1000)
+				.ease(d3.easeLinear)
 
 	// line path
 	let line = d3.line()
@@ -75,15 +87,16 @@ export function lineGraph(tagId, frame, ticker, freq, interval) {
 				.attr("d", line(data))
 
 	// redraw graph at given frequency 
-	setInterval(redraw, 1000)
-
-	function redraw() {
+	setInterval(tick, 1000)
+	function tick() {
+		// update data
 		data.shift()
 		data.push(pullData(ticker))
 
+		// update x-axis and redraw line
+		scales.xAx.domain([data[0].date, data[data.length-1].date])
+		xAx.call(scales.xAx.axis)
 		linePath.attr("d", line(data))
-			.transition()
-			.duration(d3.easeLinear(1000))
 	}
 }
 

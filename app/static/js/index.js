@@ -2,8 +2,8 @@
 import { lineGraph } from '/js/lineGraph.js'
 
 $(document).ready(function() {
-	// main visual: pull data every ten seconds over 10 minute interval
-	lineGraph("#main-display-visual", getFrame(), "FUN", 10, 600) 
+	// main visual: pull data every second over a 1 minute interval
+	lineGraph("#main-display-visual", getFrame(), "FUN", 1, 60) 
 
 	// sidebar toggle
 	$('#sidebarCollapse').on('click', function() {
