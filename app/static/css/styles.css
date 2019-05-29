@@ -108,6 +108,20 @@ svg .line-graph-path {
 	height: 100vh;
 }
 
+#main-display-title {
+	color: #575757;
+	margin-left: 60px;
+}
+
+#main-display-list {
+	float: right;
+	margin-right: 60px;
+}
+
+.main-display-btn {
+	color: #6299c7;
+}
+
 #stdin {
 	position: absolute;
 	bottom: 0px;
