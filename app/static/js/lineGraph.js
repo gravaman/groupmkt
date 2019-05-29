@@ -38,6 +38,14 @@ export function lineGraph(tagId, frame, ticker, freq, interval) {
 			.append("g")
 				.attr("transform", `translate(${margin.left},${margin.top})`)
 
+	// content background
+	svg.append("rect")
+		.attr("width", frame.width+2) 
+		.attr("height", frame.height+2)
+		.attr("x", -1)
+		.attr("y",-1)
+		.style("fill", "#eaeaea")
+
 	// pull historical data
 	let data = priorData(ticker, freq, interval)
 	let xrng = d3.range(0,data.length,1)
@@ -76,7 +84,7 @@ export function lineGraph(tagId, frame, ticker, freq, interval) {
 
 	// heartbeat transition on document root element
 	let heartbeat = d3.transition("heartbeat")
-				.duration(1000)
+				.duration(freq*1000)
 				.ease(d3.easeLinear)
 
 	// line graph
@@ -89,7 +97,7 @@ export function lineGraph(tagId, frame, ticker, freq, interval) {
 				.attr("d", line(data))
 
 	// redraw graph at given frequency 
-	setInterval(tick, 1000)
+	setInterval(tick, freq*1000)
 	function tick() {
 		// update data
 		let v = pullData(ticker)
