@@ -1,6 +1,6 @@
 @import "https://fonts.googleapis.com/css?family=Poppins:300,400,500,600,700";
 
-body {
+html, body {
 	font-family: 'Poppins', sans-serif;
 	background: #fafafa;
 	height: 100vh;
