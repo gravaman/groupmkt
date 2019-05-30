@@ -14,8 +14,18 @@ import (
 	"strings"
 
 	"github.com/corpix/uarand"
-	"golang.org/x/net/html"
+	"github.com/pkg/errors"
 )
+
+type Trade struct {
+	TradeQuantity   string  `json:"tradeQuantity"`
+	SecurityID      string  `json:"securityID"`
+	Price           float64 `json:"price"`
+	TradeDate       string  `json:"tradeDate"`
+	TimeOfExecution string  `json:"timeOfExecution"`
+}
+
+type Trades []*Trade
 
 type FinraQP map[string]string
 type FinraQS map[string][]FinraQP
@@ -36,18 +46,65 @@ const (
 	FINRA_USRNAME
 )
 
-type FinraClient struct {
-	Jar      *cookiejar.Jar
-	Client   *http.Client
-	LoggedIn bool
-	ua       string
+type Target struct {
+	CUSIP     string
+	StartDate string
+	EndDate   string
 }
 
-func (fc *FinraClient) Login() bool {
+type FinraClient struct {
+	Jar    *cookiejar.Jar
+	Client *http.Client
+	*Target
+	MaxLoginAttempts int
+	loginAttempts    int
+	ua               string
+	recvLogin        chan int
+	fetchTrades      chan *Target
+	recvTrades       chan io.ReadCloser
+	done             chan bool
+}
+
+func (fc *FinraClient) Start(cusip, startDate, endDate string) {
+	fc.Target = &Target{
+		CUSIP:     cusip,
+		StartDate: startDate,
+		EndDate:   endDate,
+	}
+	go fc.heartbeat()
+	go fc.login()
+	go fc.fetchListener()
+}
+
+func (fc *FinraClient) heartbeat() {
+	for {
+		select {
+		case loginflag := <-fc.recvLogin:
+			if loginflag == 0 {
+				// successful login attempt
+				fc.loginAttempts = 0
+				fc.fetchTrades <- fc.Target
+				break
+			}
+
+			// unsuccessful login attempt
+			if fc.loginAttempts++; fc.loginAttempts > fc.MaxLoginAttempts {
+				msg := fmt.Sprintf("Exceeded max login attempt threshold (%d)", fc.MaxLoginAttempts)
+				log.Fatal(msg)
+			}
+			go fc.login()
+		case body := <-fc.recvTrades:
+			io.Copy(os.Stdout, body)
+		}
+	}
+}
+
+func (fc *FinraClient) login() {
 	// build request
 	req, err := http.NewRequest("GET", FinraLoginURL, nil)
 	if err != nil {
-		log.Fatal(err)
+		msg := fmt.Sprintf("Error getting FINRA login URL: %s", FinraLoginURL)
+		log.Fatal(errors.Wrap(err, msg))
 	}
 	req.Header.Add("host", FinraMarketsHost)
 	req.Header.Add("user-agent", fc.ua)
@@ -87,88 +144,77 @@ func (fc *FinraClient) Login() bool {
 			loginflag ^= FINRA_USRNAME
 		}
 	}
-	fc.LoggedIn = (loginflag == 0)
-	return fc.LoggedIn
+	fc.recvLogin <- loginflag
 }
 
-func (fc *FinraClient) FetchTrades(cusip, d0, d1 string) {
-	// login
-	a := 5
-	for {
-		if fc.LoggedIn {
-			break
-		}
-		if a == 0 {
-			log.Fatal("login attempts exceeded")
-		}
-		fc.Login()
-		a--
-	}
+func (fc *FinraClient) fetchListener() {
+	for target := range fc.fetchTrades {
+		// build payload
+		secId := FinraQP{"Name": "securityId", "Value": target.CUSIP}
+		td := FinraQP{"Name": "tradeDate", "minValue": target.StartDate, "maxValue": target.EndDate}
+		qs := FinraQS{"Keywords": []FinraQP{secId, td}}
 
-	// build payload
-	secId := FinraQP{"Name": "securityId", "Value": cusip}
-	td := FinraQP{"Name": "tradeDate", "minValue": d0, "maxValue": d1}
-	qs := FinraQS{"Keywords": []FinraQP{secId, td}}
-
-	b, err := json.Marshal(qs)
-	if err != nil {
-		log.Fatal(err)
-	}
-	qse := url.QueryEscape(string(b))
-
-	v := url.Values{}
-	v.Set("count", "20")
-	v.Add("sortfield", "tradeDate")
-	v.Add("sorttype", "2")
-	v.Add("start", "0")
-	v.Add("searchtype", "T")
-	v.Add("query", qse)
-	payload := strings.NewReader(v.Encode())
-
-	// build request
-	req, err := http.NewRequest("POST", FinraBondSearchURL, payload)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// build referer string
-	refv := url.Values{}
-	refv.Set("ticker", cusip)
-	refv.Set("startdate", d0)
-	refv.Set("enddate", d1)
-	refstr := "http://" + FinraMarketsHost + "/BondCenter/BondTradeActivitySearchResult.jsp?" + url.QueryEscape(refv.Encode())
-
-	req.Header.Add("host", FinraMarketsHost)
-	req.Header.Add("user-agent", fc.ua)
-	req.Header.Add("accept", "text/plain, */*; q=0.01")
-	req.Header.Add("accept-language", "en-US,en;q=0.5")
-	req.Header.Add("accept-encoding", "gzip, deflate")
-	req.Header.Add("content-type", "application/x-www-form-urlencoded")
-	req.Header.Add("x-requested-with", "XMLHttpRequest")
-	// req.Header.Add("referer", "http://finra-markets.morningstar.com/BondCenter/BondTradeActivitySearchResult.jsp?ticker=C765371&startdate=05%2F29%2F2018&enddate=05%2F29%2F2019")
-	req.Header.Add("referer", refstr)
-	req.Header.Add("cache-control", "no-cache,no-cache")
-	req.Header.Add("connection", "keep-alive")
-
-	res, err := fc.Client.Do(req)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer res.Body.Close()
-
-	// handle response
-	var reader io.ReadCloser
-	switch res.Header.Get("Content-Encoding") {
-	case "gzip":
-		reader, err = gzip.NewReader(res.Body)
+		b, err := json.Marshal(qs)
 		if err != nil {
 			log.Fatal(err)
 		}
-		defer reader.Close()
-	default:
-		reader = res.Body
+		qse := url.QueryEscape(string(b))
+
+		v := url.Values{}
+		v.Set("count", "20")
+		v.Add("sortfield", "tradeDate")
+		v.Add("sorttype", "2")
+		v.Add("start", "0")
+		v.Add("searchtype", "T")
+		v.Add("query", qse)
+		payload := strings.NewReader(v.Encode())
+
+		// build request
+		req, err := http.NewRequest("POST", FinraBondSearchURL, payload)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		// build referer string
+		refv := url.Values{}
+		refv.Set("ticker", target.CUSIP)
+		refv.Set("startdate", target.StartDate)
+		refv.Set("enddate", target.EndDate)
+		refstr := "http://" + FinraMarketsHost + "/BondCenter/BondTradeActivitySearchResult.jsp?" + url.QueryEscape(refv.Encode())
+
+		req.Header.Add("host", FinraMarketsHost)
+		req.Header.Add("user-agent", fc.ua)
+		req.Header.Add("accept", "text/plain, */*; q=0.01")
+		req.Header.Add("accept-language", "en-US,en;q=0.5")
+		req.Header.Add("accept-encoding", "gzip, deflate")
+		req.Header.Add("content-type", "application/x-www-form-urlencoded")
+		req.Header.Add("x-requested-with", "XMLHttpRequest")
+		// req.Header.Add("referer", "http://finra-markets.morningstar.com/BondCenter/BondTradeActivitySearchResult.jsp?ticker=C765371&startdate=05%2F29%2F2018&enddate=05%2F29%2F2019")
+		req.Header.Add("referer", refstr)
+		req.Header.Add("cache-control", "no-cache,no-cache")
+		req.Header.Add("connection", "keep-alive")
+
+		res, err := fc.Client.Do(req)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer res.Body.Close()
+
+		// handle response
+		var reader io.ReadCloser
+		switch res.Header.Get("Content-Encoding") {
+		case "gzip":
+			reader, err = gzip.NewReader(res.Body)
+			if err != nil {
+				log.Fatal(err)
+			}
+			defer reader.Close()
+		default:
+			reader = res.Body
+		}
+		fc.recvTrades <- reader
+
 	}
-	io.Copy(os.Stdout, reader)
 }
 
 func NewFinraClient() *FinraClient {
@@ -178,32 +224,28 @@ func NewFinraClient() *FinraClient {
 	}
 
 	client := &http.Client{Jar: jar}
-	return &FinraClient{Jar: jar, Client: client, ua: uarand.GetRandom()}
-}
-
-func parseDoc(doc string) {
-	node, err := html.Parse(strings.NewReader(doc))
-	if err != nil {
-		log.Fatal(err)
-	}
-	parseNode(node)
-}
-
-func parseNode(n *html.Node) {
-	if n.Type == html.ElementNode && n.Data == "a" {
-		for _, a := range n.Attr {
-			if a.Key == "href" {
-				fmt.Println(a.Val)
-				break
-			}
-		}
-	}
-	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		parseNode(c)
+	return &FinraClient{
+		Jar:              jar,
+		Client:           client,
+		MaxLoginAttempts: 5,
+		ua:               uarand.GetRandom(),
+		recvLogin:        make(chan int),
+		recvTrades:       make(chan io.ReadCloser),
+		fetchTrades:      make(chan *Target),
+		done:             make(chan bool),
 	}
 }
 
 func main() {
+	// [TBU]
+	// reverse loginflag bits
+	// graceful exit event
+	// graceful exit when exceed login attempts
+	// target queue
+	// check login status
+	// stdin listener
+	// wrap errors
 	fc := NewFinraClient()
-	fc.FetchTrades("C765371", "05/29/2018", "05/29/2019")
+	fc.Start("C765371", "05/29/2018", "05/29/2019")
+	<-fc.done
 }
