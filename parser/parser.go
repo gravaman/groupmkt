@@ -131,6 +131,13 @@ func (fc *FinraClient) FetchTrades(cusip, d0, d1 string) {
 		log.Fatal(err)
 	}
 
+	// build referer string
+	refv := url.Values{}
+	refv.Set("ticker", cusip)
+	refv.Set("startdate", d0)
+	refv.Set("enddate", d1)
+	refstr := "http://" + FinraMarketsHost + "/BondCenter/BondTradeActivitySearchResult.jsp?" + url.QueryEscape(refv.Encode())
+
 	req.Header.Add("host", FinraMarketsHost)
 	req.Header.Add("user-agent", fc.ua)
 	req.Header.Add("accept", "text/plain, */*; q=0.01")
@@ -138,7 +145,8 @@ func (fc *FinraClient) FetchTrades(cusip, d0, d1 string) {
 	req.Header.Add("accept-encoding", "gzip, deflate")
 	req.Header.Add("content-type", "application/x-www-form-urlencoded")
 	req.Header.Add("x-requested-with", "XMLHttpRequest")
-	req.Header.Add("referer", "http://finra-markets.morningstar.com/BondCenter/BondTradeActivitySearchResult.jsp?ticker=C765371&startdate=05%2F29%2F2018&enddate=05%2F29%2F2019")
+	// req.Header.Add("referer", "http://finra-markets.morningstar.com/BondCenter/BondTradeActivitySearchResult.jsp?ticker=C765371&startdate=05%2F29%2F2018&enddate=05%2F29%2F2019")
+	req.Header.Add("referer", refstr)
 	req.Header.Add("cache-control", "no-cache,no-cache")
 	req.Header.Add("connection", "keep-alive")
 
