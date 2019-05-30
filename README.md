@@ -1,3 +1,4 @@
 # groupmkt
 ## To Do
-* initial html scraper
+* initial parser
+* scraper heartbeat
