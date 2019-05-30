@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"compress/gzip"
 	"encoding/json"
 	"fmt"
@@ -10,7 +11,6 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
-	"os"
 	"strings"
 
 	"github.com/corpix/uarand"
@@ -25,7 +25,14 @@ type Trade struct {
 	TimeOfExecution string  `json:"timeOfExecution"`
 }
 
-type Trades []*Trade
+type Trades struct {
+	Columns []Trade `json:"Columns"`
+	Rows    int     `json:"Rows"`
+}
+
+type TradeRes struct {
+	T Trades `json:"T"`
+}
 
 type FinraQP map[string]string
 type FinraQS map[string][]FinraQP
@@ -61,7 +68,7 @@ type FinraClient struct {
 	ua               string
 	recvLogin        chan int
 	fetchTrades      chan *Target
-	recvTrades       chan io.ReadCloser
+	recvTrades       chan []byte
 	done             chan bool
 }
 
@@ -93,8 +100,21 @@ func (fc *FinraClient) heartbeat() {
 				log.Fatal(msg)
 			}
 			go fc.login()
-		case body := <-fc.recvTrades:
-			io.Copy(os.Stdout, body)
+		case b := <-fc.recvTrades:
+			// fix malformed response
+			b = bytes.Replace(b, []byte(`T:`), []byte(`"T":`), 1)
+
+			var res TradeRes
+			if err := json.Unmarshal(b, &res); err != nil {
+				log.Fatal(errors.Wrap(err, "Error unmarshaling trades"))
+			}
+			cnt := res.T.Rows
+			fmt.Printf("Trades Received: %d\n", cnt)
+			if cnt > 0 {
+				for _, t := range res.T.Columns {
+					fmt.Printf("%s [%s] %s %.3f\n", t.TradeDate, t.TimeOfExecution, t.SecurityID, t.Price)
+				}
+			}
 		}
 	}
 }
@@ -212,8 +232,11 @@ func (fc *FinraClient) fetchListener() {
 		default:
 			reader = res.Body
 		}
-		fc.recvTrades <- reader
-
+		if b, err := ioutil.ReadAll(reader); err != nil {
+			log.Fatal(errors.Wrap(err, "Error reading trade response body"))
+		} else {
+			fc.recvTrades <- b
+		}
 	}
 }
 
@@ -230,7 +253,7 @@ func NewFinraClient() *FinraClient {
 		MaxLoginAttempts: 5,
 		ua:               uarand.GetRandom(),
 		recvLogin:        make(chan int),
-		recvTrades:       make(chan io.ReadCloser),
+		recvTrades:       make(chan []byte),
 		fetchTrades:      make(chan *Target),
 		done:             make(chan bool),
 	}
@@ -245,6 +268,7 @@ func main() {
 	// check login status
 	// stdin listener
 	// wrap errors
+	// Trade String() for Printing
 	fc := NewFinraClient()
 	fc.Start("C765371", "05/29/2018", "05/29/2019")
 	<-fc.done
