@@ -13,6 +13,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/corpix/uarand"
 	"golang.org/x/net/html"
 )
 
@@ -20,6 +21,7 @@ type FinraQP map[string]string
 type FinraQS map[string][]FinraQP
 
 const (
+	FinraMarketsHost   = "finra-markets.morningstar.com"
 	FinraBondSearchURL = "http://finra-markets.morningstar.com/bondSearch.jsp"
 	FinraLoginURL      = "http://finra-markets.morningstar.com/finralogin.jsp"
 )
@@ -38,6 +40,7 @@ type FinraClient struct {
 	Jar      *cookiejar.Jar
 	Client   *http.Client
 	LoggedIn bool
+	ua       string
 }
 
 func (fc *FinraClient) Login() bool {
@@ -46,14 +49,14 @@ func (fc *FinraClient) Login() bool {
 	if err != nil {
 		log.Fatal(err)
 	}
-	req.Header.Add("host", "finra-markets.morningstar.com")
-	req.Header.Add("user-agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.14; rv:67.0) Gecko/20100101 Firefox/67.0")
+	req.Header.Add("host", FinraMarketsHost)
+	req.Header.Add("user-agent", fc.ua)
 	req.Header.Add("accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
 	req.Header.Add("accept-language", "en-US,en;q=0.5")
 	req.Header.Add("accept-encoding", "gzip, deflate")
 	req.Header.Add("content-type", "application/x-www-form-urlencoded")
 	req.Header.Add("cache-control", "no-cache,no-cache")
-	req.Header.Add("referer", "http://finra-markets.morningstar.com/finralogin.jsp")
+	req.Header.Add("referer", FinraLoginURL)
 	req.Header.Add("connection", "keep-alive")
 
 	// make request
@@ -128,8 +131,8 @@ func (fc *FinraClient) FetchTrades(cusip, d0, d1 string) {
 		log.Fatal(err)
 	}
 
-	req.Header.Add("host", "finra-markets.morningstar.com")
-	req.Header.Add("user-agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.14; rv:67.0) Gecko/20100101 Firefox/67.0")
+	req.Header.Add("host", FinraMarketsHost)
+	req.Header.Add("user-agent", fc.ua)
 	req.Header.Add("accept", "text/plain, */*; q=0.01")
 	req.Header.Add("accept-language", "en-US,en;q=0.5")
 	req.Header.Add("accept-encoding", "gzip, deflate")
@@ -167,7 +170,7 @@ func NewFinraClient() *FinraClient {
 	}
 
 	client := &http.Client{Jar: jar}
-	return &FinraClient{Jar: jar, Client: client}
+	return &FinraClient{Jar: jar, Client: client, ua: uarand.GetRandom()}
 }
 
 func parseDoc(doc string) {
