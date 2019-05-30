@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -17,12 +18,18 @@ import (
 	"github.com/pkg/errors"
 )
 
+var debug = flag.Bool("d", false, "debug mode")
+
 type Trade struct {
 	TradeQuantity   string  `json:"tradeQuantity"`
 	SecurityID      string  `json:"securityID"`
 	Price           float64 `json:"price"`
 	TradeDate       string  `json:"tradeDate"`
 	TimeOfExecution string  `json:"timeOfExecution"`
+}
+
+func (t *Trade) String() string {
+	return fmt.Sprintf("%s [%s] %s %.3f %s", t.TradeDate, t.TimeOfExecution, t.SecurityID, t.Price, t.TradeQuantity)
 }
 
 type Trades struct {
@@ -51,6 +58,7 @@ const (
 	FINRA_SESSIONID
 	FINRA_USRID
 	FINRA_USRNAME
+	FINRA_LOGGED_IN = FINRA_CFDUID | FINRA_QS_WSID | FINRA_INSTID | FINRA_CFRUID | FINRA_SESSIONID | FINRA_USRID | FINRA_USRNAME
 )
 
 type Target struct {
@@ -87,17 +95,25 @@ func (fc *FinraClient) heartbeat() {
 	for {
 		select {
 		case loginflag := <-fc.recvLogin:
-			if loginflag == 0 {
+			fc.loginAttempts++
+			if loginflag == FINRA_LOGGED_IN {
 				// successful login attempt
+				if *debug {
+					fmt.Printf("Login successful (attempt: %d)\n", fc.loginAttempts)
+				}
 				fc.loginAttempts = 0
 				fc.fetchTrades <- fc.Target
 				break
 			}
 
 			// unsuccessful login attempt
-			if fc.loginAttempts++; fc.loginAttempts > fc.MaxLoginAttempts {
-				msg := fmt.Sprintf("Exceeded max login attempt threshold (%d)", fc.MaxLoginAttempts)
-				log.Fatal(msg)
+			if fc.loginAttempts > fc.MaxLoginAttempts {
+				log.Fatal(fmt.Sprintf("MaxLoginAttempts Exceeded (%d)", fc.MaxLoginAttempts))
+			}
+
+			// keep trying until exceed MaxLoginAttempts threshold
+			if *debug {
+				fmt.Printf("Login fail (attempt: %d; flag: %d)\n", fc.loginAttempts, loginflag)
 			}
 			go fc.login()
 		case b := <-fc.recvTrades:
@@ -108,12 +124,20 @@ func (fc *FinraClient) heartbeat() {
 			if err := json.Unmarshal(b, &res); err != nil {
 				log.Fatal(errors.Wrap(err, "Error unmarshaling trades"))
 			}
-			cnt := res.T.Rows
-			fmt.Printf("Trades Received: %d\n", cnt)
-			if cnt > 0 {
-				for _, t := range res.T.Columns {
-					fmt.Printf("%s [%s] %s %.3f\n", t.TradeDate, t.TimeOfExecution, t.SecurityID, t.Price)
+
+			// attempt to log in again if res is `{}`
+			if bytes.Index(b, []byte(`"T":`)) == -1 {
+				if *debug {
+					fmt.Println("Received empty trade response.")
 				}
+				go fc.login()
+				break
+			}
+
+			// handle received trades
+			fmt.Printf("Trades Received: %d\n", res.T.Rows)
+			for _, t := range res.T.Columns {
+				fmt.Println(&t)
 			}
 		}
 	}
@@ -123,8 +147,7 @@ func (fc *FinraClient) login() {
 	// build request
 	req, err := http.NewRequest("GET", FinraLoginURL, nil)
 	if err != nil {
-		msg := fmt.Sprintf("Error getting FINRA login URL: %s", FinraLoginURL)
-		log.Fatal(errors.Wrap(err, msg))
+		log.Fatal(errors.Wrap(err, fmt.Sprintf("Error building login req: %s", FinraLoginURL)))
 	}
 	req.Header.Add("host", FinraMarketsHost)
 	req.Header.Add("user-agent", fc.ua)
@@ -139,13 +162,13 @@ func (fc *FinraClient) login() {
 	// make request
 	res, err := fc.Client.Do(req)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal(errors.Wrap(err, fmt.Sprintf("Error making login req to: %s", FinraLoginURL)))
 	}
 	defer res.Body.Close()
 	io.Copy(ioutil.Discard, res.Body)
 
 	// check for required login flags
-	loginflag := FINRA_CFDUID | FINRA_QS_WSID | FINRA_INSTID | FINRA_CFRUID | FINRA_SESSIONID | FINRA_USRID | FINRA_USRNAME
+	var loginflag int
 	for _, c := range fc.Jar.Cookies(req.URL) {
 		switch c.Name {
 		case "__cfduid":
@@ -176,7 +199,7 @@ func (fc *FinraClient) fetchListener() {
 
 		b, err := json.Marshal(qs)
 		if err != nil {
-			log.Fatal(err)
+			log.Fatal(errors.Wrap(err, fmt.Sprintf("Error marshaling %+v", qs)))
 		}
 		qse := url.QueryEscape(string(b))
 
@@ -192,7 +215,7 @@ func (fc *FinraClient) fetchListener() {
 		// build request
 		req, err := http.NewRequest("POST", FinraBondSearchURL, payload)
 		if err != nil {
-			log.Fatal(err)
+			log.Fatal(errors.Wrap(err, fmt.Sprintf("Error building req %s", FinraBondSearchURL)))
 		}
 
 		// build referer string
@@ -209,14 +232,13 @@ func (fc *FinraClient) fetchListener() {
 		req.Header.Add("accept-encoding", "gzip, deflate")
 		req.Header.Add("content-type", "application/x-www-form-urlencoded")
 		req.Header.Add("x-requested-with", "XMLHttpRequest")
-		// req.Header.Add("referer", "http://finra-markets.morningstar.com/BondCenter/BondTradeActivitySearchResult.jsp?ticker=C765371&startdate=05%2F29%2F2018&enddate=05%2F29%2F2019")
 		req.Header.Add("referer", refstr)
 		req.Header.Add("cache-control", "no-cache,no-cache")
 		req.Header.Add("connection", "keep-alive")
 
 		res, err := fc.Client.Do(req)
 		if err != nil {
-			log.Fatal(err)
+			log.Fatal(errors.Wrap(err, fmt.Sprintf("Error fetching from %s", FinraBondSearchURL)))
 		}
 		defer res.Body.Close()
 
@@ -226,12 +248,14 @@ func (fc *FinraClient) fetchListener() {
 		case "gzip":
 			reader, err = gzip.NewReader(res.Body)
 			if err != nil {
-				log.Fatal(err)
+				log.Fatal(errors.Wrap(err, "Error reading res for trade fetch req"))
 			}
 			defer reader.Close()
 		default:
 			reader = res.Body
 		}
+
+		// read response body
 		if b, err := ioutil.ReadAll(reader); err != nil {
 			log.Fatal(errors.Wrap(err, "Error reading trade response body"))
 		} else {
@@ -243,7 +267,7 @@ func (fc *FinraClient) fetchListener() {
 func NewFinraClient() *FinraClient {
 	jar, err := cookiejar.New(&cookiejar.Options{PublicSuffixList: nil})
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal(errors.Wrap(err, "Err creating cookie jar"))
 	}
 
 	client := &http.Client{Jar: jar}
@@ -261,14 +285,18 @@ func NewFinraClient() *FinraClient {
 
 func main() {
 	// [TBU]
-	// reverse loginflag bits
-	// graceful exit event
-	// graceful exit when exceed login attempts
-	// target queue
-	// check login status
-	// stdin listener
-	// wrap errors
-	// Trade String() for Printing
+	// [1] px check loop
+	// [2] target queue for a given client
+	// [3] multiple clients for same host thru tor
+	// info logging
+	// reqs thru tor
+	// randomize reqs
+	// input listener
+	flag.Parse()
+	if *debug {
+		fmt.Println("Parser launched in debug mode.")
+	}
+
 	fc := NewFinraClient()
 	fc.Start("C765371", "05/29/2018", "05/29/2019")
 	<-fc.done
