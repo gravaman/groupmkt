@@ -13,6 +13,7 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 
 // cli opts
 var debug = flag.Bool("d", false, "debug mode")
+var torConns = flag.Int("c", 1, "tor connections (default 1)")
 
 type Trade struct {
 	TradeQuantity   string  `json:"tradeQuantity"`
@@ -149,7 +151,8 @@ func (tgt *Target) parseTrades(b []byte) {
 }
 
 const (
-	TorProxyStr          = "socks5://127.0.0.1:9050"
+	TorDefaultPort       = 9050
+	TorProxyStr          = "socks5://127.0.0.1:"
 	TorCircuitSetupSleep = 5
 	TorCircuitTimeout    = 5
 )
@@ -319,14 +322,14 @@ func (fc *FinraClient) NewTarget(cusip, d0, d1 string) *Target {
 	return &tgt
 }
 
-func NewFinraClient() *FinraClient {
+func NewFinraClient(port int) *FinraClient {
 	jar, err := cookiejar.New(&cookiejar.Options{PublicSuffixList: nil})
 	if err != nil {
 		log.Fatal(errors.Wrap(err, "Err creating cookie jar"))
 	}
 
 	client := &http.Client{
-		Transport: newTorTransport(),
+		Transport: newTorTransport(port),
 		Jar:       jar,
 		Timeout:   time.Second * FinraTimeoutDefault,
 	}
@@ -360,6 +363,8 @@ func (fc *FinraClient) launchTor() error {
 			fmt.Println("Existing tor network found")
 		}
 		return err
+	} else {
+		log.Fatal(errors.Wrap(err, "Error trying to connect to tor circuit"))
 	}
 
 	// start tor launch
@@ -422,31 +427,40 @@ func (fc *FinraClient) launchTor() error {
 	return err
 }
 
-func newTorTransport() *http.Transport {
-	url, err := url.Parse(TorProxyStr)
+func newTorTransport(port int) *http.Transport {
+	torUrl := TorProxyStr + strconv.Itoa(port)
+	url, err := url.Parse(torUrl)
+	if *debug {
+		fmt.Println("Building transport for tor conn:", url)
+	}
 	if err != nil {
-		log.Fatal(errors.Wrap(err, fmt.Sprintf("Unable to parse TorProxyStr (%s)", TorProxyStr)))
+		log.Fatal(errors.Wrap(err, fmt.Sprintf("Unable to parse TorProxyStr (%s)", torUrl)))
 	}
 	return &http.Transport{Proxy: http.ProxyURL(url)}
 }
 
 func main() {
 	// [TBU]
-	// programmatically launch tor
-	// multiple tor circuits or end nodes
+	// tor cleanup script
+	//
 	// info logging
 	// randomize reqs
 	// input listener
 	// add/remove targets
 	flag.Parse()
 	if *debug {
-		fmt.Println("Parser launched in debug mode.")
+		fmt.Println("Parser launched in debug mode")
 	}
 
-	fc := NewFinraClient()
+	workers := make([]FinraClient, *torConns)
+	targets := []string{"C765371", "C577245"}
 	d0, d1 := "05/29/2018", "05/29/2019"
-	fc.AddTarget("C765371", d0, d1)
-	fc.AddTarget("C577245", d0, d1)
-	fc.Start()
-	<-fc.done
+	for i := TorDefaultPort; i < TorDefaultPort+*torConns; i++ {
+		fc := NewFinraClient(i)
+		fc.AddTarget(targets[i-TorDefaultPort], d0, d1)
+		fc.Start()
+		workers[i-TorDefaultPort] = *fc
+	}
+
+	<-workers[0].done
 }
