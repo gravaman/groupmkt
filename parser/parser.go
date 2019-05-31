@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/pkg/errors"
 )
 
+// cli opts
 var debug = flag.Bool("d", false, "debug mode")
 
 type Trade struct {
@@ -41,26 +43,6 @@ type Trades struct {
 type TradeRes struct {
 	T Trades `json:"T"`
 }
-
-type FinraQP map[string]string
-type FinraQS map[string][]FinraQP
-
-const (
-	FinraMarketsHost   = "finra-markets.morningstar.com"
-	FinraBondSearchURL = "http://finra-markets.morningstar.com/bondSearch.jsp"
-	FinraLoginURL      = "http://finra-markets.morningstar.com/finralogin.jsp"
-)
-
-const (
-	FINRA_CFDUID = 1 << iota
-	FINRA_QS_WSID
-	FINRA_INSTID
-	FINRA_CFRUID
-	FINRA_SESSIONID
-	FINRA_USRID
-	FINRA_USRNAME
-	FINRA_LOGGED_IN = FINRA_CFDUID | FINRA_QS_WSID | FINRA_INSTID | FINRA_CFRUID | FINRA_SESSIONID | FINRA_USRID | FINRA_USRNAME
-)
 
 type Target struct {
 	CUSIP     string
@@ -166,6 +148,34 @@ func (tgt *Target) parseTrades(b []byte) {
 	}
 }
 
+const (
+	TorProxyStr          = "socks5://127.0.0.1:9050"
+	TorCircuitSetupSleep = 5
+	TorCircuitTimeout    = 5
+)
+
+const (
+	FinraMarketsHost        = "finra-markets.morningstar.com"
+	FinraBondSearchURL      = "http://finra-markets.morningstar.com/bondSearch.jsp"
+	FinraLoginURL           = "http://finra-markets.morningstar.com/finralogin.jsp"
+	FinraTorCircuitCheckURL = "https://check.torproject.org"
+	FinraTimeoutDefault     = 10
+)
+
+const (
+	FINRA_CFDUID = 1 << iota
+	FINRA_QS_WSID
+	FINRA_INSTID
+	FINRA_CFRUID
+	FINRA_SESSIONID
+	FINRA_USRID
+	FINRA_USRNAME
+	FINRA_LOGGED_IN = FINRA_CFDUID | FINRA_QS_WSID | FINRA_INSTID | FINRA_CFRUID | FINRA_SESSIONID | FINRA_USRID | FINRA_USRNAME
+)
+
+type FinraQP map[string]string
+type FinraQS map[string][]FinraQP
+
 type FinraClient struct {
 	Jar              *cookiejar.Jar
 	Client           *http.Client
@@ -253,6 +263,14 @@ func (fc *FinraClient) AddTarget(cusip, startDate, endDate string) {
 }
 
 func (fc *FinraClient) Start() {
+	if err := fc.launchTor(); err != nil {
+		log.Fatal(err)
+	}
+
+	if *debug {
+		fmt.Println("Connected to tor")
+	}
+
 	go fc.tradeListener()
 	go fc.checkTargets()
 	go fc.login()
@@ -307,7 +325,11 @@ func NewFinraClient() *FinraClient {
 		log.Fatal(errors.Wrap(err, "Err creating cookie jar"))
 	}
 
-	client := &http.Client{Jar: jar}
+	client := &http.Client{
+		Transport: newTorTransport(),
+		Jar:       jar,
+		Timeout:   time.Second * FinraTimeoutDefault,
+	}
 	var tgts []*Target
 	var rtgts []Target
 	fc := FinraClient{
@@ -325,10 +347,94 @@ func NewFinraClient() *FinraClient {
 	return &fc
 }
 
+// launchTor starts tor and then polls circuit until either receiving a successful res without an error or
+// TorCircuitTimeout has passed. If unsuccessful, a non-nil error is returned.
+func (fc *FinraClient) launchTor() error {
+	if *debug {
+		fmt.Println("Checking for tor network")
+	}
+
+	// check for existing tor circuit
+	if _, err := fc.Client.Get(FinraTorCircuitCheckURL); err == nil {
+		if *debug {
+			fmt.Println("Existing tor network found")
+		}
+		return err
+	}
+
+	// start tor launch
+	cmd := exec.Command("tor")
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	// setup
+	circuit := make(chan int)
+	check := make(chan int)
+	success := make(chan int)
+
+	checker := func() {
+		if _, err := fc.Client.Get(FinraTorCircuitCheckURL); err != nil {
+			check <- 1
+		} else {
+			success <- 1
+		}
+	}
+
+	// give tor time to setup circuit
+	time.Sleep(time.Second * TorCircuitSetupSleep)
+	timer := time.AfterFunc(time.Second*TorCircuitTimeout, func() {
+		circuit <- 1
+	})
+
+	go checker()
+
+	// keep checking circuit
+	var err error
+	var complete bool
+	for {
+		if complete {
+			break
+		}
+
+		select {
+		case <-circuit:
+			err, complete = errors.New("TorCircuitTimeout expired"), true
+		case <-check:
+			fmt.Println("check called")
+			go checker()
+		case <-success:
+			if *debug {
+				fmt.Println("Tor network successfully launched")
+			}
+			// flush timer
+			if !timer.Stop() {
+				<-timer.C
+			}
+			err, complete = nil, true
+		}
+	}
+
+	// cleanup, cleanup, everybody cleanup
+	close(circuit)
+	close(check)
+	close(success)
+	return err
+}
+
+func newTorTransport() *http.Transport {
+	url, err := url.Parse(TorProxyStr)
+	if err != nil {
+		log.Fatal(errors.Wrap(err, fmt.Sprintf("Unable to parse TorProxyStr (%s)", TorProxyStr)))
+	}
+	return &http.Transport{Proxy: http.ProxyURL(url)}
+}
+
 func main() {
 	// [TBU]
+	// programmatically launch tor
+	// multiple tor circuits or end nodes
 	// info logging
-	// reqs thru tor
 	// randomize reqs
 	// input listener
 	// add/remove targets
